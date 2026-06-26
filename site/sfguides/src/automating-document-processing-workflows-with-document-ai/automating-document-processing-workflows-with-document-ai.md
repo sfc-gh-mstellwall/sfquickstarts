@@ -2,32 +2,34 @@ author: Mats Stellwall
 id: automating-document-processing-workflows-with-document-ai
 categories: snowflake-site:taxonomy/solution-center/certification/quickstart, snowflake-site:taxonomy/product/ai, snowflake-site:taxonomy/snowflake-feature/ingestion, snowflake-site:taxonomy/snowflake-feature/document-ai
 language: en
-summary: Automate document processing with Snowflake Document AI for invoice extraction, form digitization, OCR, and data validation workflows.
+summary: Automate document processing with Snowflake AI_EXTRACT for invoice extraction, form digitization, OCR, and data validation workflows.
 environments: web
 status: Published 
 feedback link: https://github.com/Snowflake-Labs/sfguides/issues
 
 
-# Automating Document Processing Workflows With Document AI
+# Automating Document Processing Workflows With AI_EXTRACT
 <!-- ------------------------ -->
-
->**Note:
->The Document AI feature referenced in this guide has been deprecated. Please see [this guide](https://www.snowflake.com/en/developers/guides/create-a-document-processing-pipeline-with-ai-extract/) to learn more about the successor feature AI_EXTRACT.**<br> 
 
 ## Overview 
 
-Through this quickstart guide, you will explore Document AI. You will set up your Snowflake environment, use Document AI to create a model to extract values from documents, create a document extraction pipline using the model and use streamlit to build a application to verify the extracted values.  
+Through this quickstart guide, you will explore AI_EXTRACT. You will set up your Snowflake environment, use AI_EXTRACT to extract values from documents, create a document extraction pipline using AI_EXTRACT and use streamlit to build a application to verify the extracted values.  
 
-### What is Document AI 
-Document AI is a Snowflake machine learning feature that uses a large language model (LLM) to extract data from documents. With Document AI, you can prepare pipelines for continuous processing of new documents of a specific type, such as invoice or finance statement documents.
+### What is AI_EXTRACT 
+AI_EXTRACT is a Cortex AI Function that lets you extract structured information, such as entities, lists, and tables, from text or document files, by asking questions in natural language or by describing information to be extracted. It can be used with other functions to create custom document processing pipelines for a variety of use cases.
 
-Document AI uses a model that provides both zero-shot extraction and fine-tuning. Zero-shot means that the foundation model is trained on a large volume of various documents, so the model broadly understands the type of document being processed. In this way, it can locate and extract information specific to this document type, even if the model has never seen the document before.
+AI_EXTRACT can process documents of various formats in multiple languages and extract information from both text-heavy paragraphs and content in a graphical form, such as logos, handwritten text (for example, signatures), tables, or checkmarks). AI_EXTRACT can extract information in the following structured formats:
 
-Additionally, you can create your own customized, fine-tuned Document AI model to improve your results by training the model on the documents specific to your use case.
+* Entity: Ask questions in natural language or describe the information to be extracted (such as city, street, or ZIP code).
+* List (or array): You can provide a JSON schema to extract an array or list of information present in the document, such as the name of all account holders in a bank statement or a list of all addresses in a Document.
+* Table: Provide a JSON schema to extract tabular data present in the document by specifying the table title and a list of columns that should be extracted.
+
+AI_EXTRACT scales automatically with your workload by processing multiple documents simultaneously. Documents can be processed directly from object storage to avoid unnecessary data movement.
+
+AI_EXTRACT uses arctic-extract, a proprietary vision based large language model (LLM) that delivers high extraction accuracy.
 
 ### What You’ll Learn 
-* how to create a Document AI model
-* how use a published Document AI model to build a data pipeline
+* how use a AI_EXTRACTto build a data pipeline
 * how to build a Streamlit application for verifying documents
 
 ### Prerequisites
@@ -72,42 +74,41 @@ Run the following SQL commands, those can also be found in the [setup.sql](https
 ```SQL
 USE ROLE ACCOUNTADMIN;
 
--- CREATE A DOC AI ROLE TO BE USED FOR THE QUICKSTART
-CREATE ROLE doc_ai_qs_role;
-GRANT DATABASE ROLE SNOWFLAKE.DOCUMENT_INTELLIGENCE_CREATOR TO ROLE doc_ai_qs_role;
+-- CREATE A ROLE TO BE USED FOR THE QUICKSTART
+CREATE ROLE ai_extract_qs_role;
 
-GRANT ROLE doc_ai_qs_role TO USER <YOUR USER>;
+GRANT ROLE ai_extract_qs_role TO USER <YOUR USER>;
 
 -- CREATE A WAREHOUSE TO BE USED
-CREATE WAREHOUSE doc_ai_qs_wh;
+CREATE WAREHOUSE ai_extract_qs_wh;
 
 -- GIVE THE doc_ai_qs_role ROLE ACCESS TO THE WAREHOUSE
-GRANT USAGE, OPERATE, MODIFY ON WAREHOUSE doc_ai_qs_wh TO ROLE doc_ai_qs_role;
+GRANT USAGE, OPERATE, MODIFY ON WAREHOUSE ai_extract_qs_wh TO ROLE ai_extract_qs_role;
 
 -- CREATE DATABASE AND SCHEMA TO BE USED, GIVE THE doc_ai_qs_role ACCESS
-CREATE DATABASE doc_ai_qs_db;
-GRANT CREATE SCHEMA, MODIFY, USAGE ON DATABASE doc_ai_qs_db TO ROLE doc_ai_qs_role;
+CREATE DATABASE ai_extract_qs_db;
+GRANT CREATE SCHEMA, MODIFY, USAGE ON DATABASE ai_extract_qs_db TO ROLE ai_extract_qs_role;
+
+-- GRANT ACCESS TO SNOWFLAKE CORTEX AI FUNCTIONS
+GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE ai_extract_qs_role;
 
 -- CHANGE TO THE QUICKSTART ROLE
-USE ROLE doc_ai_qs_role;
+USE ROLE ai_extract_qs_role;
 
--- CREATE A SCHEMA FOR THE DOCUEMNT AI MODEL, STAGE etc
-CREATE SCHEMA doc_ai_qs_db.doc_ai_schema;
-
--- EXPLICIT GRANT USAGE AND snowflake.ml.document_intelligence on the  SCHEMA
-GRANT USAGE ON SCHEMA doc_ai_qs_db.doc_ai_schema to role doc_ai_qs_role;
-GRANT CREATE snowflake.ml.document_intelligence on schema doc_ai_qs_db.doc_ai_schema to role doc_ai_qs_role;
+-- CREATE A SCHEMA FOR THE STAGE, TABLES etc
+CREATE SCHEMA ai_extract_qs_db.ai_extract_schema;
+GRANT USAGE ON SCHEMA ai_extract_qs_db.ai_extract_schema TO ROLE ai_extract_qs_role;
 
 -- CREATE A STAGE FOR STORING DOCUMENTS
-CREATE STAGE doc_ai_qs_db.doc_ai_schema.doc_ai_stage
+CREATE STAGE ai_extract_qs_db.ai_extract_schema.ai_extract_stage
   DIRECTORY = (enable = true)
   ENCRYPTION = (type = 'snowflake_sse');
 
 -- SCHEMA FOR THE STREAMLIT APP
-CREATE SCHEMA doc_ai_qs_db.streamlit_schema;
+CREATE SCHEMA ai_extract_qs_db.streamlit_schema;
 
 -- TABLE FOR THE STREAMLIT APP
-CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.CO_BRANDING_AGREEMENTS_VERIFIED
+CREATE OR REPLACE TABLE ai_extract_qs_db.ai_extract_schema.CO_BRANDING_AGREEMENTS_VERIFIED
 (
     file_name string
     , snowflake_file_url string
@@ -119,49 +120,40 @@ CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.CO_BRANDING_AGREEMENTS_VERIFI
 We are now ready to start.
 
 <!-- ------------------------ -->
-## Build a Document AI model
+## Design the extraction
 
 ### Overview
-In This step we will create a Document AI model by uploading documents and sepcify the questions needed to extarct values. Once done we will publish the models so it can be use for extracting values from documents.
 
-### Step 1: Create a Document AI build
-In Snowsight make sure you have changed the role to DOC_AI_QS_ROLE, you can see the active role in under your users name in the bottom left corner.  
+Since AI_EXTRACT is a Cortex AI Function, we can use SQL to define the value extraction questions, if we want to have the SQL generated for us we can use the **Document Processing Playground** which is a visual interface against AI_EXTRACT and AI_PARSE_DOCUMENT, that is not covered in this Qucikstart.
+
+### Step 1: Open the Document Processing Playground and upload documents
+In Snowsight make sure you have changed the role to AI_EXTRACT_QS_ROLE, you can see the active role if you click on the cirkel in the left bottom corner.  
 ![Active Role](assets/active_role.png)
 
-1. Navigate to Document AI by clicking on **AI & ML** and then **Document AI**
-2. Select the doc_ai_qs_wh warehouse  
-![Select WH](assets/select_wh.png)
-3. Click on **+ Build** and set the name, database and schema as below.
-   * Build name: DOC_AI_QS_CO_BRANDING
-   * Locations: 
-     * DOC_AI_QS_DB
-     * DOC_AI_SCHEMA  
-![New Build](assets/new_build.png)  
-4. Click on **Create**
-
-### Step 2: Upload documents
-In this step we wil upload example documents that we will use to ask value extraction questions against, so we can verify that the questionswork.  
-> 
-    >
-    >The recommendation is to use at least 20 documents, but in this qucikstart we will only use 5 to speed up the review step.  
-1. Click on **Upload documents** to start the process of uploading documents  
-![Upload Documents Start](assets/start_upload.png)  
-2. Add the documents in the **training_documents** folder and click **Upload**  
-![Upload Dialog](assets/upload_dialog.png)  
-3. Click on **+ Value** to open the page for define the questions for extracting values  
-![Upload Dialog](assets/start_define_values.png)  
+1. Navigate to **Document Processing Playground** by clicking on **AI & ML** and then **AI Studio**.  
+![Select WH](assets/navigate_ai_studio.png)  
+2. Click on **Document Processing Playground**.  
+![Select WH](assets/doc_play_open.png)  
+3. Select **AI_EXTRACT_QS_WH** in the warehouse dropdown in the top right corner.  
+![Select WH](assets/select_wh.png)  
+4. Click on **Choose file** in **Upload files to get started**.  
+![Select WH](assets/choose_files.png)  
+5. Add the documents in the **training_documents** folder and click **Upload**.  
+![Select WH](assets/uploaded_documents.png)  
 
 ### Step 3: Specify values
 In this step we will define the questions for extracting values and the name of the key the value will be added to.  
-1. Click on **Add Value** and enter **effective_date** as the **Vale Name** and  **What is the effective date of the agreement?** as the question.
+
+1. Enter **effective_date** as the **Key** and **What is the effective date of the agreement?** as the **Question** and click on **Add Prompt**.  
 ![First Value](assets/adding_first_value.png)  
-2. By clicking on the **Locate Answer** button (target looking icon), we can see where in teh document Document AI has found the answer.
-![First Value](assets/locate_first_value.png)  
+
+2. You should now see an awnser for the prompt based on the document to the right.  
 ![First Value](assets/first_value_location.png)  
-3. Add the rest of the the value names and questions from the table below   
-| VALUE NAME | QUESTION |
+
+2. Add the rest of the the value names and questions from the table below
+
+| KEY | QUESTION |
 |------------|----------|
-| parties | Who are the parties involved in the agreement? |
 | duration | What is the duration of the agreement? |
 | notice_period | What is the notice period for termination? |
 | indemnification_clause | Is there an indemnification clause? |
@@ -169,22 +161,9 @@ In this step we will define the questions for extracting values and the name of 
 | force_majeure | Is there a force majeure clause? |
 | payment_terms | What are the payment terms, including amounts, timing, and conditions? |
 
-4. Once all values are defined click on **Accept and review next**
-5. If a value is missing or for example it is a **No** for a value, you can verify if it is correct by searching for the term in the document  
-![Search Icon](assets/search_icon.png)  
-![Search term](assets/term_search.png)  
-> 
-    >
-    >For some of the questions multiple answers might be correct.
-6. Step through all documents and verify the values and for the document **EdietsComInc_20001030_10QSB_EX-10.4_2606646_EX-10.4_Co-Branding Agreement.pdf** the **payment_terms** is not correct since it is a schedule, so it should be cleared which is done by clicking on **...** next to the value and choose **Clear answer**  
-![More Options](assets/more_options.png)  
-![Cleared Answer](assets/cleared_answer.png)  
-5. Once done with all documents click **Accept and close** and then click on **Build Details**   
-![Go to Build Details](assets/go_build_details.png)  
-6. Click on **Publish version**  
-![Publish Version](assets/publish_version.png)  
-7. Click on **Publish** in the dialog  
-![Publish Dialog](assets/publish_data_dialog.png)  
+4. We can get a list of values for a key, by clicking on **List** and then add **parties** as the **Key** and **List all the parties involved in this agreement** as the question and then click on **Add Prompt**.  
+![First Value](assets/list_prompt.png)  
+5. Once all values are defined you can test the prompts with different documents by changing the current one in the dropdown.  
 
 We are now ready to create a document processing pipeline.
 
@@ -192,16 +171,23 @@ We are now ready to create a document processing pipeline.
 ## Create a document processing pipeline
 
 ### Overview
-In this step we will use our previously published model to extract values from new documents. This step might be done by a data engineer or someone responsible for setting up piplines.
+In this step will we use the generated SQL from the previous step as the startying point for creating a docoment extraction pipeline.
 
-### Step 1: Get the model instructions 
-First we need to get the SQL for calling the model.  
-1. In the **Extracting Query** section, make a note of the fully qualified name of the build, in this example **DOC_AI_QS_DB.DOC_AI_SCHEMA.DOC_AI_QS_CO_BRANDING!PREDICT**, and the version, in this case **1**.
-![See Instructions](assets/model_instructions.png)  
+### Step 1: Get the generated SQL 
+
+1. Click on **<> Code Snippets** in the top right corner.  
+![See Instructions](assets/get_code_snippets.png)  
+
+2. Click on the copy icon in the right corner of the **Extract Data** snippet, paste it into a text document so you can get it later.  
+![See Instructions](assets/code_snippets.png)  
+
+3. Close the dialog and then navigate to workspaces by going to **Projects -> Workspaces**.  
+![Go to stage](assets/navigate_to_workspaces.png)  
 
 ### Step 2: Upload documents to a stage
 Second step is to add the documnets we want to extract values from to a Snowflake stage, created in the Setup the Snowflake enviroment step.
-1. Navigate to the stage by going to **Data -> Databases -> DOC_AI_QS_DB -> DOC_AI_SCHEMA -> Stages -> DOC_AI_STAGE**
+
+1. Navigate to the stage by going to **Data -> Databases -> AI_EXTRACT_QS_DB -> AI_EXTRACT_SCHEMA -> Stages -> AI_EXTRACT_STAGE**.  
 ![Go to stage](assets/navigate_to_stage.png)  
 2. Click on **+ Files** and add all documents in the **extraction_documents** folder to the dialog and click **Upload**  
 ![Go to stage](assets/stage_upload_dialog.png)  
@@ -209,7 +195,7 @@ Second step is to add the documnets we want to extract values from to a Snowflak
 
 ### Step 3: Exectue the extraction SQL
 Third step is to use the published model to extract values from our documents, all SQLs can also be found in the [extraction.sql](https://github.com/Snowflake-Labs/sfguide-getting-started-with-document-ai/blob/main/extraction.sql) file.
-1. Create a new SQL Worksheet
+1. Navigate back to workspaces and create a new SQL file
 2. Check that we have files in the stage by executing the following SQL
 ```SQL
 USE ROLE doc_ai_qs_role;
@@ -219,52 +205,66 @@ USE SCHEMA doc_ai_schema;
 
 LS @doc_ai_stage;
 ```
-![List stage](assets/list_stage_sql.png)  
 3. Add the following SQL, this will create a table, **CO_BRANDING_AGREEMENTS**, that will contain the extracted values and the scores of the extractions. Execture the SQL, this wil take a couple of minutes.  
 ```SQL
 -- Create a table with all values and scores
-CREATE OR REPLACE TABLE doc_ai_qs_db.doc_ai_schema.CO_BRANDING_AGREEMENTS
+CREATE OR REPLACE TABLE AI_EXTRACT_QS_DB.AI_EXTRACT_SCHEMA.CO_BRANDING_AGREEMENTS_VERIFIED
 AS
-WITH 
--- First part gets the result from applying the model on the pdf documents as a JSON with additional metadata
-temp as(
+-- First part gets the result from using AI_EXTRACT on the pdf documents as a JSON with additional metadata
+WITH extracted_values as (
     SELECT 
-        Relative_path as file_name
+        relative_path as file_name
         , size as file_size
         , last_modified
         , file_url as snowflake_file_url
-        -- VERIFY THAT BELOW IS USING THE SAME NAME AND NUMER AS THE MODEL INSTRUCTIONS YOU COPIED IN THE PREVIOUS STEP!
-        ,  DOC_AI_QS_DB.DOC_AI_SCHEMA.DOC_AI_QS_CO_BRANDING!PREDICT(get_presigned_url('@doc_ai_stage', RELATIVE_PATH ), 1) as json
-    from directory(@doc_ai_stage)
+        , AI_EXTRACT(file => TO_FILE('@AI_EXTRACT_STAGE', relative_path), 
+                responseFormat => 
+                    PARSE_JSON('{
+                            "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                            "duration": {"description":"What is the duration of the agreement?","type":"string"},
+                                            "effective_date":{"description":"What is the effective date of the agreement?","type":"string"},
+                                            "force_majeure":{"description":"Is there a force majeure clause?","type":"string"},
+                                            "indemnification_clause":{"description":"Is there an indemnification clause?","type":"string"},
+                                            "notice_period":{"description":"What is the notice period for termination?","type":"string"},
+                                            "parties":{"description":"List all the parties involved in this agreement","type":"array"},
+                                            "payment_terms":{"description":"What are the payment terms, including amounts, timing, and conditions?","type":"string"},
+                                            "renewal_options":{"description":"Are there any renewal options or conditions mentioned?","type":"string"}
+                                        }
+                                    }
+                                }'),
+                scores => TRUE) AS extracted_data
+    FROM DIRECTORY (@AI_EXTRACT_STAGE) 
 )
 -- Second part extract the values and the scores from the JSON into columns
-SELECT
-file_name
-, file_size
-, last_modified
-, snowflake_file_url
-, json:__documentMetadata.ocrScore::FLOAT AS ocrScore
-, json:parties::ARRAY as parties_array
-, ARRAY_SIZE(parties_array) AS identified_parties
-, json:effective_date[0]:score::FLOAT AS effective_date_score
-, json:effective_date[0]:value::STRING AS effective_date_value
-, json:duration[0]:score::FLOAT AS agreement_duration_score
-, json:duration[0]:value::STRING AS agreement_duration_value
-, json:notice_period[0]:score::FLOAT AS notice_period_score
-, json:notice_period[0]:value::STRING AS notice_period_value
-, json:payment_terms[0]:score::FLOAT AS payment_terms_score
-, json:payment_terms[0]:value::STRING AS payment_terms_value
-, json:force_majeure[0]:score::FLOAT AS have_force_majeure_score
-, json:force_majeure[0]:value::STRING AS have_force_majeure_value
-, json:indemnification_clause[0]:score::FLOAT AS have_indemnification_clause_score
-, json:indemnification_clause[0]:value::STRING AS have_indemnification_clause_value
-, json:renewal_options[0]:score::FLOAT AS have_renewal_options_score
-, json:renewal_options[0]:value::STRING AS have_renewal_options_value
-FROM temp;
+select
+    file_name
+    , file_size
+    , last_modified
+    , snowflake_file_url
+    , extracted_data:scoring:scores:parties:score::FLOAT AS parties_score
+    , extracted_data:response:parties::ARRAY as parties_array
+    , ARRAY_SIZE(parties_array) AS identified_parties
+    , extracted_data:scoring:scores:effective_date:score::FLOAT AS effective_date_score
+    , extracted_data:response:effective_date::STRING AS effective_date_value
+    , extracted_data:scoring:scores:duration:score::FLOAT AS agreement_duration_score
+    , extracted_data:response:duration::STRING AS agreement_duration_value
+    , extracted_data:scoring:scores:notice_period:score::FLOAT AS notice_period_score
+    , extracted_data:response:notice_period::STRING AS notice_period_value
+    , extracted_data:scoring:scores:payment_terms:score::FLOAT AS payment_terms_score
+    , extracted_data:response:payment_terms::STRING AS payment_terms_value
+    , extracted_data:scoring:scores:force_majeure:score::FLOAT AS have_force_majeure_score
+    , extracted_data:response:force_majeure::STRING AS have_force_majeure_value
+    , extracted_data:scoring:scores:indemnification_clause:score::FLOAT AS have_indemnification_clause_score
+    , extracted_data:response:indemnification_clause::STRING AS have_indemnification_clause_value
+    , extracted_data:scoring:scores:renewal_options:score::FLOAT AS have_renewal_options_score
+    , extracted_data:response:renewal_options::STRING AS have_renewal_options_value
+from extracted_values;
 ```  
 4. Check that there is a result by running the following SQL  
 ```SQL
-select * from doc_ai_qs_db.doc_ai_schema.CO_BRANDING_AGREEMENTS;
+select * from AI_EXTRACT_QS_DB.AI_EXTRACT_SCHEMA.CO_BRANDING_AGREEMENTS_VERIFIED;
 ```  
 ![List stage](assets/extraction_result.png)  
 
@@ -280,15 +280,13 @@ In this step we will create a Streamlit application in Snowflake to be used for 
 
 ### Step 1: Create a Streamlit application
 The Python code for this step can also be found [streamlit_app.py](https://github.com/Snowflake-Labs/sfguide-getting-started-with-document-ai/blob/main/streamlit_app.py) file.
-1. Navigate to Streamlit by click on the **projects** icon to the left and choose **Streamlit**  
+1. In the workspace click on **+ Add New** and choose **Streamlit App**  
 ![Streamlit navigation](assets/streamlit_icon.png)  
-3. Make sure you are using the **doc_ai_qs_role** role  
-![Streamlit role](assets/streamlit_role.png)  
-4. Click on **+ Streamlit App**  
+3. Click on **+ Streamlit App**  
 ![Streamlit page](assets/streamlit_page.png)  
-5. Give it a title and choose the **DOCK_AI_QS_DB** and **STREAMLIT_SCHEMA** for **App location** and **DOC_AI_WH** as **App warehouse** and click **Create**  
+4. Give it a title and choose the **DOCK_AI_QS_DB** and **STREAMLIT_SCHEMA** for **App location** and **DOC_AI_WH** as **App warehouse** and click **Create**  
 ![Streamlit create dialog](assets/create_streamlit_dialog.png)  
-6. Replace the code in the left pane with the code below  
+5. Replace the code in the left pane with the code below  
 ```python
 # Import python packages
 import streamlit as st
@@ -526,13 +524,13 @@ with st.container():
 
 ```  
 ![Streamlit code](assets/streamlit_code.png)  
-5. Open the **Packages** menu  
+6. Open the **Packages** menu  
 ![Streamlit package menu](assets/streamlit_packages_menu.png)  
-6. Enter **pypdfium2** in **Find Packages**, and select the first result  
+7. Enter **pypdfium2** in **Find Packages**, and select the first result  
 ![Streamlit package search](assets/streamlit_package_search.png)  
-7. Verify that **pypdfium2** is now in the list of **Installed Packages**  
+8. Verify that **pypdfium2** is now in the list of **Installed Packages**  
 ![Streamlit installed packages](assets/streamlit_installed_packages.png)  
-8. Click **Run** to see the result of the code, in order to hide the code you can click on the **Close editor** icon in the left bottom.  
+9. Click **Run** to see the result of the code, in order to hide the code you can click on the **Close editor** icon in the left bottom.  
 ![Streamlit close editor](assets/streamlit_close_editor_icon.png)  
 
 You can now start verifying documents.
